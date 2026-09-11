@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Talabalar anketasi</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <h1>Talaba ma'lumotnomasi — Anketa</h1>
+    <p>Is'hoqxon Ibrat nomidagi Namangan davlat chet tillari instituti</p>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" id="tabBtnStudent" onclick="switchTab('student')">Anketani to'ldirish</button>
+  <button class="tab-btn" id="tabBtnAdmin" onclick="switchTab('admin')">Administrator</button>
+</div>
+
+<div class="container">
+  <div class="card">
+
+    <!-- STUDENT PANEL -->
+    <div id="panel-student" class="panel active">
+
+      <div id="gateBox" class="gate">
+        <h3 style="margin-bottom:6px;">Boshlash uchun telefon raqamingiz va 4 xonali parolingizni kiriting</h3>
+        <p>Bu raqam va parol orqali anketangizni keyinchalik tahrirlashingiz mumkin. Parolni unutmang — u orqali faqat siz o'z anketangizni ko'ra va o'zgartira olasiz.</p>
+        <div id="gateMsg"></div>
+        <div class="q" style="text-align:left;">
+          <label class="qlabel">Telefon raqamingiz <span class="req">*</span></label>
+          <input type="tel" id="gatePhone" placeholder="+998 90 123 45 67">
+        </div>
+        <div class="q" style="text-align:left; border-bottom:none;">
+          <label class="qlabel">4 xonali parol <span class="req">*</span></label>
+          <div class="hint">Agar avval to'ldirgan bo'lsangiz — o'sha parolni kiriting. Birinchi marta to'ldirsangiz — yangi parol o'ylab toping.</div>
+          <input type="password" id="gatePin" maxlength="4" inputmode="numeric" placeholder="••••">
+        </div>
+        <button class="btn" id="gateSubmitBtn" onclick="enterForm()">Davom etish</button>
+      </div>
+
+      <form id="studentForm" style="display:none;" onsubmit="return false;">
+        <div id="formMsg"></div>
+
+        <fieldset>
+          <legend>Asosiy ma'lumotlar</legend>
+          <div class="q">
+            <label class="qlabel">Ism Familiya Sharifingiz <span class="req">*</span></label>
+            <div class="hint">Na'muna: Aliyeva Malika Tohirjon qizi</div>
+            <input type="text" id="f_fullname" required>
+          </div>
+          <div class="q">
+            <label class="qlabel">Rasmingiz (ixtiyoriy)</label>
+            <label class="file-drop" id="photoDrop">Rasm tanlash uchun bosing
+              <input type="file" id="f_photo" accept="image/*" style="display:none;" onchange="handlePhoto(event)">
+            </label>
+          </div>
+          <div class="q">
+            <label class="qlabel">Tug'ilgan kuningiz (kun.oy.yil)</label>
+            <input type="text" id="f_birthdate" placeholder="12.05.2008">
+          </div>
+          <div class="q">
+            <label class="qlabel">Guruhingiz <span class="req">*</span></label>
+            <select id="f_group" required>
+              <option value="">Tanlang...</option>
+              <option>XTA-AU-26</option>
+              <option>XTA-KU-25</option>
+              <option>XTA-JU-25</option>
+              <option>RUS-AR-25</option>
+              <option>RUA-AR-24</option>
+              <option>XTA-AU-23</option>
+            </select>
+          </div>
+          <div class="q">
+            <label class="qlabel">Millatingiz</label>
+            <input type="text" id="f_nationality">
+          </div>
+          <div class="q">
+            <label class="qlabel">Bilgan chet tillaringiz</label>
+            <div class="hint">Masalan: Ingliz tili, Turk tili</div>
+            <input type="text" id="f_languages">
+          </div>
+          <div class="q" style="border-bottom:none;">
+            <label class="qlabel">Tamomlagan maktabingiz (kolleji, litseyi)</label>
+            <input type="text" id="f_school">
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Qabul va aloqa</legend>
+          <div class="q">
+            <label class="qlabel">O'qishga maxsus imtiyoz bilan qabul qilinganmisiz? <span class="req">*</span></label>
+            <div class="radio-row">
+              <label class="radio-opt"><input type="radio" name="f_privilege" value="Ha" required> Ha</label>
+              <label class="radio-opt"><input type="radio" name="f_privilege" value="Yo'q"> Yo'q</label>
+            </div>
+          </div>
+          <div class="q">
+            <label class="qlabel">Telefon raqamingiz <span class="req">*</span></label>
+            <input type="tel" id="f_phone_display" required disabled>
+          </div>
+          <div class="q">
+            <label class="qlabel">Elektron pochtangiz</label>
+            <input type="text" id="f_email">
+          </div>
+          <div class="q" style="border-bottom:none;">
+            <label class="qlabel">Telegram (foydalanuvchi nomi)</label>
+            <input type="text" id="f_telegram" placeholder="@foydalanuvchi_nomi">
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Manzil</legend>
+          <div class="q">
+            <label class="qlabel">Doimiy yashash manzilingiz</label>
+            <div class="hint">Na'muna: Namangan viloyati, To'raqo'rg'on tumani, Kumidon MFY, Soy bo'yi ko'chasi 80-uy</div>
+            <textarea id="f_permaddr"></textarea>
+          </div>
+          <div class="q" style="border-bottom:none;">
+            <label class="qlabel">Hozirgi o'qish davrida turgan manzilingizni tanlang <span class="req">*</span></label>
+            <select id="f_currentType" required onchange="toggleCurrentType()">
+              <option value="">Tanlang...</option>
+              <option>Talabalar turar joyi</option>
+              <option>ijara xonadonidan</option>
+              <option>O'z uyimdan</option>
+              <option>yaqin qarindoshim xonadonida</option>
+            </select>
+
+            <div class="conditional" id="cond-ijara">
+              <div class="q">
+                <label class="qlabel">Ijara xonadon manzilingiz</label>
+                <div class="hint">Na'muna: Davlatobod tumani, Tadbirkor MFY, Navqiron ko'chasi, 34-dom 26-xonadon</div>
+                <textarea id="f_ijaraAddr"></textarea>
+              </div>
+              <div class="q">
+                <label class="qlabel">Ijara xonadon egasi ism familiyasi</label>
+                <input type="text" id="f_ijaraOwner">
+              </div>
+              <div class="q" style="border-bottom:none;">
+                <label class="qlabel">Ijara xonadon egasi telefon raqami</label>
+                <input type="tel" id="f_ijaraOwnerPhone">
+              </div>
+            </div>
+
+            <div class="conditional" id="cond-ttj">
+              <div class="q" style="border-bottom:none;">
+                <label class="qlabel">Nechinchi qavatda va xona raqamingiz</label>
+                <div class="hint">Misol: 3-qavat, 25-xona</div>
+                <input type="text" id="f_ttjRoom">
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Ota-ona ma'lumotlari</legend>
+          <div class="q">
+            <label class="qlabel">Otangizning ismi familiyasi sharifi</label>
+            <div class="hint">Na'muna: Alijonov Bunyodjon Aliyevich</div>
+            <input type="text" id="f_fatherName">
+          </div>
+          <div class="q">
+            <label class="qlabel">Otangizning ish joyi, lavozimi</label>
+            <input type="text" id="f_fatherJob">
+          </div>
+          <div class="q">
+            <label class="qlabel">Otangizning telefon raqami <span class="req">*</span></label>
+            <input type="tel" id="f_fatherPhone" required>
+          </div>
+          <div class="q">
+            <label class="qlabel">Onangizning familiya ismi sharifi</label>
+            <input type="text" id="f_motherName">
+          </div>
+          <div class="q">
+            <label class="qlabel">Onangizning ish joyi, lavozimi</label>
+            <input type="text" id="f_motherJob">
+          </div>
+          <div class="q" style="border-bottom:none;">
+            <label class="qlabel">Onangizning telefon raqami</label>
+            <input type="tel" id="f_motherPhone">
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Aka-uka, opa-singil</legend>
+          <div class="q" style="border-bottom:none;">
+            <label class="qlabel">Aka/uka, opa/singilingiz haqida qisqacha</label>
+            <div class="hint">Masalan: Akam — Aliyev Sardor, 2010-y., o'quvchi; Opam — Aliyeva Nodira, 1999-y., o'qituvchi</div>
+            <textarea id="f_siblings"></textarea>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Oilaviy holat</legend>
+          <div class="q">
+            <label class="qlabel">Turmush qurganmisiz? <span class="req">*</span></label>
+            <div class="radio-row">
+              <label class="radio-opt"><input type="radio" name="f_married" value="Ha" required onclick="toggleMarried()"> Ha</label>
+              <label class="radio-opt"><input type="radio" name="f_married" value="Yo'q" onclick="toggleMarried()"> Yo'q</label>
+            </div>
+          </div>
+          <div class="conditional" id="cond-married" style="border-bottom:none;">
+            <div class="q">
+              <label class="qlabel">Nechta farzandingiz bor</label>
+              <input type="text" id="f_childrenCount" inputmode="numeric">
+            </div>
+            <div class="q">
+              <label class="qlabel">Turmush o'rtog'ingizning ism sharifi</label>
+              <input type="text" id="f_spouseName">
+            </div>
+            <div class="q">
+              <label class="qlabel">Turmush o'rtog'ingizning telefon raqami</label>
+              <input type="tel" id="f_spousePhone">
+            </div>
+            <div class="q" style="border-bottom:none;">
+              <label class="qlabel">Turmush o'rtog'ingizning ish joyi</label>
+              <input type="text" id="f_spouseJob">
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Vasiy / mas'ul shaxs</legend>
+          <div class="hint" style="margin-top:-6px;">Agar sizga ota-onadan tashqari mas'ul bo'lgan boshqa shaxs bo'lsa (masalan qarindosh yoki homiy)</div>
+          <div class="q">
+            <label class="qlabel">Vasiy/mas'ul shaxsning ism sharifi</label>
+            <input type="text" id="f_guardianName">
+          </div>
+          <div class="q" style="border-bottom:none;">
+            <label class="qlabel">Vasiy/mas'ul shaxsning telefon raqami</label>
+            <input type="tel" id="f_guardianPhone">
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Ijtimoiy holat</legend>
+          <div class="q">
+            <label class="qlabel">Ijtimoiy holatingiz <span class="req">*</span></label>
+            <select id="f_socialStatus" required onchange="toggleSocialOther()">
+              <option value="">Tanlang...</option>
+              <option>Yoshlar daftariga kiritilganman</option>
+              <option>Onam Ayollar daftariga kiritilgan</option>
+              <option>O'zim ayollar daftariga kiritilganman</option>
+              <option>Oilamiz ijtimoiy himoya reestrida turadi</option>
+              <option>Oilamizda ikki va undan ortiq oliy ta'lim tashkilotida kontrakt to'lov asosida tahsil oladi</option>
+              <option>Bularning hech biriga to'g'ri kelmayman</option>
+              <option>Oilamiz kam daromadli</option>
+              <option>Boshqa</option>
+            </select>
+            <div class="conditional" id="cond-socialOther">
+              <input type="text" id="f_socialOtherText" placeholder="Boshqa holatingizni yozing">
+            </div>
+          </div>
+          <div class="q">
+            <label class="qlabel">Sizda nogironlik bormi? <span class="req">*</span></label>
+            <div class="radio-row">
+              <label class="radio-opt"><input type="radio" name="f_disability" value="Ha" required> Ha</label>
+              <label class="radio-opt"><input type="radio" name="f_disability" value="Yo'q"> Yo'q</label>
+            </div>
+          </div>
+          <div class="q">
+            <label class="qlabel">Ota-onangizning birida nogironlik bormi? <span class="req">*</span></label>
+            <div class="radio-row">
+              <label class="radio-opt"><input type="radio" name="f_parentDisability" value="Ha" required> Ha</label>
+              <label class="radio-opt"><input type="radio" name="f_parentDisability" value="Yo'q"> Yo'q</label>
+            </div>
+          </div>
+          <div class="q" style="border-bottom:none;">
+            <label class="qlabel">Ota-onangizdan biri vafot etganmi? <span class="req">*</span></label>
+            <div class="radio-row">
+              <label class="radio-opt"><input type="radio" name="f_parentDeceased" value="Ha" required> Ha</label>
+              <label class="radio-opt"><input type="radio" name="f_parentDeceased" value="Yo'q"> Yo'q</label>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Qobiliyat va bandlik</legend>
+          <div class="q">
+            <label class="qlabel">Alohida qobiliyatingiz</label>
+            <div class="hint">Masalan: rasm chizish, adabiyot, sport...</div>
+            <input type="text" id="f_talent">
+          </div>
+          <div class="q">
+            <label class="qlabel">Ishlaysizmi? <span class="req">*</span></label>
+            <div class="radio-row">
+              <label class="radio-opt"><input type="radio" name="f_working" value="Ha" required onclick="toggleWorking()"> Ha</label>
+              <label class="radio-opt"><input type="radio" name="f_working" value="Yo'q" onclick="toggleWorking()"> Yo'q</label>
+            </div>
+            <div class="conditional" id="cond-working" style="border-bottom:none;">
+              <label class="qlabel">Tashkilot nomi, manzili</label>
+              <input type="text" id="f_workPlace">
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Til kurslari va sertifikat</legend>
+          <div class="q">
+            <label class="qlabel">Hozirgi kunda til kurslariga qatnaysizmi?</label>
+            <div class="radio-row">
+              <label class="radio-opt"><input type="radio" name="f_courses" value="Ha" onclick="toggleCourses()"> Ha</label>
+              <label class="radio-opt"><input type="radio" name="f_courses" value="Yo'q" onclick="toggleCourses()"> Yo'q</label>
+            </div>
+            <div class="conditional" id="cond-courses">
+              <div class="q">
+                <label class="qlabel">Qaysi tillarni o'rganish bo'yicha qatnaysiz</label>
+                <input type="text" id="f_courseLangs">
+              </div>
+              <div class="q" style="border-bottom:none;">
+                <label class="qlabel">Qaysi o'quv markazga borasiz (nomi, manzili)</label>
+                <input type="text" id="f_courseCenter">
+              </div>
+            </div>
+          </div>
+          <div class="q">
+            <label class="qlabel">Til sertifikatingizni yuklang</label>
+            <div class="hint">Rasm yoki PDF shaklida</div>
+            <label class="file-drop" id="certDrop">Fayl tanlash uchun bosing
+              <input type="file" id="f_cert" accept="image/*,.pdf" style="display:none;" onchange="handleCert(event)">
+            </label>
+          </div>
+          <div class="q row2">
+            <div>
+              <label class="qlabel">Sertifikat olgan sanangiz</label>
+              <input type="date" id="f_certStart">
+            </div>
+            <div>
+              <label class="qlabel">Sertifikat tugash sanasi</label>
+              <input type="date" id="f_certEnd">
+            </div>
+          </div>
+          <div class="q" style="border-bottom:none;">
+            <label class="qlabel">Sertifikatingiz raqami</label>
+            <input type="text" id="f_certNumber">
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Qo'shimcha</legend>
+          <div class="q" style="border-bottom:none;">
+            <label class="qlabel">Yana nimadir bo'lsa, o'zingiz qo'shib yozing</label>
+            <textarea id="f_extra"></textarea>
+          </div>
+        </fieldset>
+
+        <button class="btn" id="submitBtn" onclick="submitForm()">Saqlash</button>
+        <div class="locked-note">Ma'lumotlaringiz faqat siz (telefon+parol orqali) va administrator tomonidan ko'riladi.</div>
+      </form>
+
+      <div id="successBox" class="success-box" style="display:none;">
+        <div class="check">✅</div>
+        <h3>Anketangiz saqlandi</h3>
+        <p style="color:var(--ink-soft);">Kerak bo'lsa, shu telefon raqami va parol orqali qayta kirib tahrirlashingiz mumkin.</p>
+        <button class="btn secondary small" onclick="location.reload()">Boshqa anketa / qayta kirish</button>
+      </div>
+    </div>
+
+    <!-- ADMIN PANEL -->
+    <div id="panel-admin" class="panel">
+      <div id="adminGate" class="gate">
+        <h3>Administrator kirishi</h3>
+        <p>Barcha talabalar anketasini ko'rish uchun parolni kiriting.</p>
+        <div id="adminMsg"></div>
+        <input type="password" id="adminPass" placeholder="Administrator paroli" style="margin-bottom:12px;">
+        <button class="btn" id="adminLoginBtn" onclick="adminLogin()">Kirish</button>
+      </div>
+
+      <div id="adminDash" style="display:none;">
+        <div class="stat-row" id="statRow"></div>
+        <input type="text" class="search-box" id="adminSearch" placeholder="Ism bo'yicha qidirish..." oninput="renderAdminTable()" style="width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:7px;">
+        <div id="groupPills"></div>
+        <div class="footer-actions" style="margin-bottom:14px;">
+          <a class="btn secondary small" id="exportBtn" href="#" target="_blank">CSV yuklab olish</a>
+        </div>
+        <div class="table-wrap">
+          <table id="adminTable">
+            <thead><tr id="adminHeadRow"></tr></thead>
+            <tbody id="adminBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
