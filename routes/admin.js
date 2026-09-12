@@ -2,7 +2,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { verifyPassword, hashPin, signAdminToken, requireAdmin } = require('../auth');
-const { OFFICIAL_GROUPS, isValidPin } = require('../helpers');
+const { OFFICIAL_GROUPS, isValidPin, deleteFromStorage } = require('../helpers');
 
 const router = express.Router();
 
@@ -20,7 +20,7 @@ router.post('/login', loginLimiter, (req, res) => {
   if (!ADMIN_PASSWORD_HASH) {
     return res.status(500).json({
       error:
-        'Administrator paroli serverda sozlanmagan (ADMIN_PASSWORD_HASH .env faylida yo\'q). ' +
+        "Administrator paroli serverda sozlanmagan (ADMIN_PASSWORD_HASH .env faylida yo'q). " +
         'README.md ga qarang.',
     });
   }
@@ -89,23 +89,49 @@ function toAdminRecord(row) {
   return out;
 }
 
-router.get('/students', requireAdmin, (req, res) => {
-  const rows = db.prepare('SELECT * FROM students ORDER BY group_name, fullname').all();
-  res.json({ groups: OFFICIAL_GROUPS, students: rows.map(toAdminRecord) });
+router.get('/students', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await db.query('SELECT * FROM students ORDER BY group_name, fullname');
+    res.json({ groups: OFFICIAL_GROUPS, students: rows.map(toAdminRecord) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Serverda xatolik yuz berdi: ' + err.message });
+  }
 });
 
-router.post('/students/:id/reset-pin', requireAdmin, (req, res) => {
-  const id = Number(req.params.id);
-  const newPin = req.body.newPin;
-  if (!isValidPin(newPin)) {
-    return res.status(400).json({ error: "Parol aynan 4 ta raqamdan iborat bo'lishi kerak." });
+router.post('/students/:id/reset-pin', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const newPin = req.body.newPin;
+    if (!isValidPin(newPin)) {
+      return res.status(400).json({ error: "Parol aynan 4 ta raqamdan iborat bo'lishi kerak." });
+    }
+    const { rows } = await db.query('SELECT id FROM students WHERE id = $1', [id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Yozuv topilmadi.' });
+    await db.query(
+      'UPDATE students SET pin_hash = $1, failed_attempts = 0, locked_until = 0, updated_at = $2 WHERE id = $3',
+      [hashPin(newPin), new Date().toISOString(), id]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Serverda xatolik yuz berdi: ' + err.message });
   }
-  const row = db.prepare('SELECT id FROM students WHERE id = ?').get(id);
-  if (!row) return res.status(404).json({ error: 'Yozuv topilmadi.' });
-  db.prepare(
-    'UPDATE students SET pin_hash = ?, failed_attempts = 0, locked_until = 0, updated_at = ? WHERE id = ?'
-  ).run(hashPin(newPin), new Date().toISOString(), id);
-  res.json({ ok: true });
+});
+
+router.delete('/students/:id', requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const filesRes = await db.query('SELECT storage_path FROM files WHERE student_id = $1', [id]);
+    await db.query('DELETE FROM students WHERE id = $1', [id]); // files jadvali ON DELETE CASCADE bilan avtomatik tozalanadi
+    for (const f of filesRes.rows) {
+      deleteFromStorage(f.storage_path).catch(() => {});
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Serverda xatolik yuz berdi: ' + err.message });
+  }
 });
 
 function csvEscape(v) {
@@ -114,17 +140,22 @@ function csvEscape(v) {
   return s;
 }
 
-router.get('/export.csv', requireAdmin, (req, res) => {
-  const rows = db.prepare('SELECT * FROM students ORDER BY group_name, fullname').all();
-  const cols = ['id', ...Object.keys(COLUMN_MAP)];
-  const lines = [cols.join(',')];
-  for (const row of rows) {
-    const rec = toAdminRecord(row);
-    lines.push(cols.map((c) => csvEscape(rec[c])).join(','));
+router.get('/export.csv', requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await db.query('SELECT * FROM students ORDER BY group_name, fullname');
+    const cols = ['id', ...Object.keys(COLUMN_MAP)];
+    const lines = [cols.join(',')];
+    for (const row of rows) {
+      const rec = toAdminRecord(row);
+      lines.push(cols.map((c) => csvEscape(rec[c])).join(','));
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="talabalar_anketasi.csv"');
+    res.send('\uFEFF' + lines.join('\n'));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Serverda xatolik yuz berdi: ' + err.message });
   }
-  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-  res.setHeader('Content-Disposition', 'attachment; filename="talabalar_anketasi.csv"');
-  res.send('\uFEFF' + lines.join('\n'));
 });
 
 module.exports = router;

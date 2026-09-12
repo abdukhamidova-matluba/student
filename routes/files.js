@@ -1,8 +1,7 @@
 const express = require('express');
-const path = require('path');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
-const { uploadsDir } = require('../helpers');
+const { downloadFromStorage } = require('../helpers');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -17,34 +16,38 @@ function getAuth(req) {
   return null;
 }
 
-router.get('/:id', (req, res) => {
-  const token = getAuth(req);
-  if (!token) return res.status(401).json({ error: 'Avtorizatsiya talab qilinadi.' });
-
-  let payload;
+router.get('/:id', async (req, res) => {
   try {
-    payload = jwt.verify(token, JWT_SECRET);
-  } catch (e) {
-    return res.status(401).json({ error: 'Sessiya yaroqsiz.' });
-  }
+    const token = getAuth(req);
+    if (!token) return res.status(401).json({ error: 'Avtorizatsiya talab qilinadi.' });
 
-  const file = db.prepare('SELECT * FROM files WHERE id = ?').get(req.params.id);
-  if (!file) return res.status(404).json({ error: 'Fayl topilmadi.' });
+    let payload;
+    try {
+      payload = jwt.verify(token, JWT_SECRET);
+    } catch (e) {
+      return res.status(401).json({ error: 'Sessiya yaroqsiz.' });
+    }
 
-  const isOwner = payload.role === 'student' && payload.sid === file.student_id;
-  const isAdmin = payload.role === 'admin';
-  if (!isOwner && !isAdmin) {
-    return res.status(403).json({ error: "Sizga bu faylni ko'rishga ruxsat yo'q." });
-  }
+    const { rows } = await db.query('SELECT * FROM files WHERE id = $1', [req.params.id]);
+    const file = rows[0];
+    if (!file) return res.status(404).json({ error: 'Fayl topilmadi.' });
 
-  const filePath = path.join(uploadsDir, file.storage_name);
-  res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
-  if (file.kind === 'cert') {
-    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.original_name || file.storage_name)}"`);
+    const isOwner = payload.role === 'student' && payload.sid === file.student_id;
+    const isAdmin = payload.role === 'admin';
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: "Sizga bu faylni ko'rishga ruxsat yo'q." });
+    }
+
+    const buffer = await downloadFromStorage(file.storage_path);
+    res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
+    if (file.kind === 'cert') {
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(file.original_name || file.id)}"`);
+    }
+    res.send(buffer);
+  } catch (err) {
+    console.error(err);
+    res.status(404).json({ error: 'Fayl topilmadi yoki o\'qishda xatolik yuz berdi.' });
   }
-  res.sendFile(filePath, (err) => {
-    if (err && !res.headersSent) res.status(404).json({ error: 'Fayl topilmadi.' });
-  });
 });
 
 module.exports = router;

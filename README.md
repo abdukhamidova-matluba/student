@@ -1,93 +1,170 @@
-# Talabalar anketasi — xavfsiz versiya
+# Talabalar anketasi — xavfsiz versiya (Vercel + Supabase)
 
 Is'hoqxon Ibrat nomidagi Namangan davlat chet tillari instituti uchun talaba ma'lumotnomasi anketasi.
 
-Bu versiya asl HTML fayldan farqli o'laroq **haqiqiy backend server** (Node.js + Express + SQLite) bilan ishlaydi, chunki asl fayl faqat Claude.ai artifact muhitida ishlaydigan `window.storage` funksiyasiga tayangan va mustaqil saytda umuman ishlamas edi.
+Bu versiya **Vercel'da bepul joylashtirish** uchun maxsus qurilgan: server kodi Vercel'ning
+"serverless funksiyasi" sifatida ishlaydi, ma'lumotlar esa **Supabase**'da (bepul, doimiy
+Postgres baza + fayl xotira) saqlanadi. Vercel'ning o'zida doimiy disk yo'qligi sababli
+ma'lumotlarni tashqi joyda saqlash shart — aks holda har safar qayta ishga tushganda hammasi
+o'chib qolar edi.
+
+## Arxitektura
+
+```
+Brauzer  →  Vercel (kod, bepul)  →  Supabase Postgres (ma'lumotlar)
+                                  →  Supabase Storage (rasm/sertifikat fayllari)
+```
+
+- **Vercel** — faqat kodni ishga tushiradi, hech narsa saqlamaydi (statelesss).
+- **Supabase** — haqiqiy, doimiy "ombor": bazangiz va fayllaringiz shu yerda, Vercel qayta
+  ishga tushsa ham yo'qolmaydi. Bepul reja: 500 MB baza + 1 GB fayl xotira — bu miqyosdagi
+  anketa uchun yetarlicha ortig'i bilan.
 
 ## Nima o'zgardi (asl versiyaga nisbatan)
 
 | Muammo (asl versiyada) | Bu versiyada |
 |---|---|
-| `window.storage` faqat Claude ichida ishlaydi, GitHub'da ishlamaydi | Haqiqiy Node.js server + SQLite baza |
-| Admin paroli kodda ochiq (`namangan2026`) | Parol serverda **bcrypt xesh** sifatida `.env` faylida, hech qachon kodga yozilmaydi |
+| `window.storage` faqat Claude ichida ishlaydi, GitHub'da ishlamaydi | Haqiqiy Node.js server + Supabase Postgres baza |
+| Admin paroli kodda ochiq (`namangan2026`) | Parol serverda **bcrypt xesh** sifatida saqlanadi, hech qachon kodga yozilmaydi |
 | Har kim brauzer konsolidan to'g'ridan-to'g'ri barcha talabalar ma'lumotini o'qiy olar edi | Har bir so'rov JWT token bilan tekshiriladi; talaba faqat o'zinikini, admin esa faqat parol bilan kirgandan keyin hammasini ko'radi |
 | 4 xonali parolni cheksiz urinib topish mumkin edi | 5 marta xato urinishdan keyin 15 daqiqaga bloklanadi + IP darajasida so'rovlar cheklanadi |
-| Rasm/sertifikat fayllari hammaga ochiq havola orqali ko'rinardi | Fayllar faqat egasi yoki admin token bilan ochiladi |
+| Rasm/sertifikat fayllari hammaga ochiq havola orqali ko'rinardi | Fayllar Supabase Storage'da **private** bucket'da, faqat egasi yoki admin token bilan ochiladi |
+| Vercel'da fayllar/baza yo'qolib qolardi | Ma'lumotlar Supabase'da — Vercel qayta ishga tushishi ularga ta'sir qilmaydi |
 
-## Talab qilinadigan narsalar
+## 1-qadam: Supabase loyihasini sozlash (5-10 daqiqa, bepul, kredit karta shart emas)
 
-- Node.js 18 yoki undan yuqori versiyasi
-- npm
+1. **supabase.com** ga kirib, bepul hisob oching (GitHub bilan kirish qulay).
+2. **New Project** → nom bering (masalan `talaba-anketa`) → **Database Password**ni o'ylab
+   toping va **saqlab qo'ying** (keyinroq kerak bo'ladi) → hudud sifatida yaqinroq mintaqani
+   tanlang → **Create new project** (1-2 daqiqa tayyorlanadi).
 
-## O'rnatish (lokal kompyuterda sinash uchun)
+3. **Bazaga ulanish satrini (connection string) oling:**
+   - Chap menyudan **Project Settings → Database** ga o'ting.
+   - **Connection string** bo'limida **"Transaction pooler"** variantini tanlang (bu
+     serverless/Vercel muhiti uchun tavsiya etilgan — oddiy to'g'ridan-to'g'ri ulanish emas).
+   - Ko'rsatilgan satrdagi `[YOUR-PASSWORD]` qismini yuqorida o'zingiz o'rnatgan parol bilan
+     almashtiring. Natija shunga o'xshash bo'ladi:
+     ```
+     postgresql://postgres.xxxxxxxxxxxx:SIZNING-PAROLINGIZ@aws-0-xxxxx.pooler.supabase.com:6543/postgres
+     ```
+   - Shu to'liq satrni nusxa ko'chirib qo'ying — bu `DATABASE_URL` bo'ladi.
+
+4. **API kalitlarini oling:**
+   - **Project Settings → API** ga o'ting.
+   - **Project URL** ni nusxa ko'chiring — bu `SUPABASE_URL`.
+   - **service_role** kalitini nusxa ko'chiring (⚠️ bu **maxfiy** kalit, `anon` kalit emas!) —
+     bu `SUPABASE_SERVICE_KEY`.
+
+5. **Fayllar uchun bucket yarating:**
+   - Chap menyudan **Storage** ga o'ting → **New bucket**.
+   - Nomi: `talaba-fayllar` (yoki boshqa nom — keyin `.env`da ko'rsatasiz).
+   - **Public bucket** ni **YOQMANG** — Private qoldiring (fayllarga faqat server orqali,
+     token tekshirilgandan keyin kirish kerak).
+   - **Create bucket**.
+
+## 2-qadam: Mahalliy kompyuterda sozlash va sinash
 
 ```bash
 npm install
 cp .env.example .env
 ```
 
-`.env` faylini oching va:
+`.env` faylini oching (`notepad .env` — Windows'da) va to'ldiring:
 
-1. `JWT_SECRET` ga tasodifiy uzun satr qo'ying:
-   ```bash
-   node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
-   ```
-   Chiqqan qiymatni `JWT_SECRET=` ga yozing.
+- `DATABASE_URL` — yuqorida 3-qadamda olgan satr
+- `SUPABASE_URL` — 4-qadamda olgan Project URL
+- `SUPABASE_SERVICE_KEY` — 4-qadamda olgan service_role kalit
+- `SUPABASE_BUCKET` — `talaba-fayllar` (yoki siz tanlagan nom)
+- `JWT_SECRET` — tasodifiy uzun satr:
+  ```bash
+  node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+  ```
+- `ADMIN_PASSWORD_HASH` — kuchli parol o'ylab, xeshini oling:
+  ```bash
+  npm run hash-password -- "sizning-kuchli-parolingiz"
+  ```
 
-2. Administrator parolini o'ylab toping (kuchli, taxmin qilib bo'lmaydigan parol) va xeshini oling:
-   ```bash
-   npm run hash-password -- "sizning-kuchli-parolingiz"
-   ```
-   Chiqqan xeshni `ADMIN_PASSWORD_HASH=` ga yozing.
+**Baza jadvallarini bir marta yarating:**
 
-So'ngra serverni ishga tushiring:
+```bash
+npm run init-db
+```
+
+`✅ Jadvallar tayyor` deb chiqishi kerak. (Supabase Dashboard → Table Editor bo'limida
+`students` va `files` jadvallarini ko'rasiz.)
+
+**Serverni ishga tushiring:**
 
 ```bash
 npm start
 ```
 
-Brauzerda `http://localhost:3000` manzilini oching.
+`http://localhost:3000` ni oching va anketani (rasm yuklash bilan birga) to'liq sinab ko'ring —
+Supabase Dashboard'da Table Editor va Storage bo'limlarida ma'lumot chiqib turganini tekshiring.
 
-## GitHub'ga qo'yish
+## 3-qadam: Vercel'ga joylashtirish
 
-GitHub'ning o'zi (repozitoriy sifatida) kodni saqlash uchun to'liq mos keladi — `git init`, `git add .`, `git commit`, so'ng GitHub'da repo yaratib push qiling. **`.env` fayli va `data/`, `uploads/` papkalari `.gitignore` tufayli avtomatik chiqarib tashlanadi — bu to'g'ri, ular hech qachon repoga tushmasligi kerak.**
+1. **Kodni GitHub'ga yuklang:**
+   ```bash
+   git init
+   git add .
+   git commit -m "talaba anketasi - Vercel + Supabase versiyasi"
+   ```
+   GitHub'da yangi (**private** tavsiya etiladi) repozitoriy yarating va push qiling.
 
-⚠️ **Muhim:** oddiy **GitHub Pages** faqat statik HTML saytlarni ko'rsatadi, u Node.js serverni ishga tushira olmaydi. Sayt haqiqatan ishlashi uchun kodni Node.js'ni qo'llab-quvvatlaydigan xizmatga joylashtirish kerak, masalan:
+2. **vercel.com** ga GitHub hisobingiz bilan kiring → **Add New → Project** → repongizni
+   tanlang → **Import**.
 
-- **Render.com** (bepul reja bor, eng oson yo'l)
-- **Railway.app**
-- **Fly.io**
-- yoki o'zingizning VPS serveringiz (masalan DigitalOcean, Timeweb)
+3. **Environment Variables** bo'limida (Deploy tugmasini bosishdan oldin!) yuqoridagi
+   `.env` faylingizdagi hamma qiymatlarni bittalab qo'shing: `DATABASE_URL`, `SUPABASE_URL`,
+   `SUPABASE_SERVICE_KEY`, `SUPABASE_BUCKET`, `JWT_SECRET`, `ADMIN_PASSWORD_HASH`,
+   `STUDENT_TOKEN_TTL`, `ADMIN_TOKEN_TTL`. (`PORT` kerak emas — Vercel buni o'zi boshqaradi.)
 
-Har birida qilinadigan ish deyarli bir xil: repo'ni ulaysiz, `npm install && npm start` buyrug'ini ko'rsatasiz, va `.env` dagi o'zgaruvchilarni (`JWT_SECRET`, `ADMIN_PASSWORD_HASH` va h.k.) o'sha xizmatning "Environment Variables" bo'limiga qo'lda kiritasiz (fayl sifatida emas — bu joyga sizning haqiqiy maxfiy qiymatlaringiz yoziladi va GitHub'ga hech qachon tushmaydi).
+4. **Deploy** tugmasini bosing. Bir necha daqiqadan so'ng
+   `https://sizning-loyihangiz.vercel.app` havolasi tayyor bo'ladi.
 
-Ma'lumotlar bazasi (`data/data.db`) va yuklangan fayllar (`uploads/`) server diskida saqlanadi — shuning uchun tanlagan xizmatingizda **doimiy disk (persistent disk/volume)** yoqilganiga ishonch hosil qiling, aks holda server qayta ishga tushganda ma'lumotlar yo'qolishi mumkin (bu — Render, Railway va Fly.io'da alohida sozlanadigan oddiy funksiya).
+5. Havolani oching, anketani sinab ko'ring, Administrator tabidan kirib tekshiring.
+
+> Keyinchalik `.env`dagi biror qiymatni o'zgartirsangiz, Vercel Dashboard'dagi Environment
+> Variables'ni ham yangilashni va loyihani qayta deploy qilishni unutmang.
 
 ## Muhim xavfsizlik eslatmalari
 
-- **Admin parolini kuchli tanlang** va uni faqat ishonchli xodimlarga bering. 4 xonali talaba PIN'lari tabiatan zaif (10 000 kombinatsiya) — shuning uchun bloklash tizimi ishlatilgan, lekin bu mutlaq himoya emas.
-- Ishlab chiqarishga (production) qo'yishdan oldin sayt albatta **HTTPS** orqali ishlashi kerak (Render/Railway/Fly.io buni avtomatik beradi).
-- `.env` faylini hech qachon hech kimga yubormang va GitHub'ga qo'ymang.
-- Vaqti-vaqti bilan `data/data.db` faylining zaxira nusxasini (backup) oling.
+- **Admin parolini kuchli tanlang** va uni faqat ishonchli xodimlarga bering.
+- `SUPABASE_SERVICE_KEY` — bu eng maxfiy kalitingiz, u orqali bazangizga to'liq kirish mumkin.
+  Uni hech qachon GitHub'ga, jamoat kanaliga yoki suhbatlarga yubormang — faqat `.env` va
+  Vercel Environment Variables ichida saqlang.
+- `.env` faylini hech qachon hech kimga yubormang va GitHub'ga qo'ymang (`.gitignore`da bor).
+- Vaqti-vaqti bilan Supabase Dashboard → Database → Backups bo'limidan zaxira nusxa olib turing.
 
 ## Loyihaning tuzilishi
 
 ```
-index.js              — asosiy server (Express, xavfsizlik sozlamalari)
-db.js                 — SQLite baza sxemasi
-auth.js               — JWT va parol xeshlash funksiyalari
-helpers.js            — telefon raqam formatlash, fayl yuklash sozlamalari
-routes/student.js      — talaba API: kirish, anketani ko'rish/saqlash
-routes/admin.js         — admin API: ro'yxat, parolni tiklash, CSV eksport
-routes/files.js          — rasm/sertifikat fayllarini xavfsiz uzatish
-public/                — frontend (HTML, CSS, JS)
-scripts/hash-password.js — admin paroli uchun bcrypt xesh generatori
+app.js                — Express ilovasi (marshrutlar, xavfsizlik sozlamalari)
+index.js               — lokal/Render uchun kirish nuqtasi (app.listen)
+api/index.js            — Vercel uchun kirish nuqtasi (serverless funksiya)
+vercel.json              — Vercel marshrutlash sozlamasi
+db.js                    — Postgres (Supabase) ulanish puli
+auth.js                  — JWT va parol xeshlash funksiyalari
+helpers.js               — telefon formatlash, Supabase Storage yuklash/o'qish funksiyalari
+routes/student.js         — talaba API: kirish, anketani ko'rish/saqlash
+routes/admin.js            — admin API: ro'yxat, parolni tiklash, CSV eksport
+routes/files.js             — rasm/sertifikat fayllarini Supabase Storage'dan xavfsiz uzatish
+public/                     — frontend (HTML, CSS, JS)
+scripts/hash-password.js     — admin paroli uchun bcrypt xesh generatori
+scripts/init-db.js            — Supabase bazasida jadvallarni bir martalik yaratish
 ```
 
-## Sinov holati (muhim)
+## Sinov holati
 
-Bu kodni yozgan muhitda internetga chiqish imkoni yo'q edi, shuning uchun `npm install` va serverni jonli (end-to-end) ishga tushirib sinash **shu yerda bajarilmadi**. Quyidagilar bajarildi:
-- Barcha JavaScript fayllar sintaksis xatoliklariga tekshirildi (`node --check`) — xatosiz.
-- Barcha API yo'llari, autentifikatsiya oqimi va ma'lumotlar sxemasi qo'lda diqqat bilan ko'rib chiqildi.
+Ushbu sandbox muhitida haqiqiy Postgres (mahalliy) ustida to'liq sinovdan o'tkazildi:
+- `npm run init-db` — jadvallar to'g'ri yaratildi ✅
+- Talaba ro'yxatdan o'tishi, kirishi, anketa matn maydonlarini saqlashi/qayta o'qishi ✅
+- Admin login (to'g'ri/noto'g'ri parol), barcha talabalar ro'yxati ✅
+- Fayl yuklash: Supabase'ga haqiqiy tarmoq ulanishi ushbu sandbox'da mavjud emasligi sababli
+  **soxta kalitlar bilan** sinaldi — kutilganidek, server qulamasdan, foydalanuvchiga aniq
+  xato xabari qaytardi. **Haqiqiy Supabase hisobingiz bilan fayl yuklashni albatta o'zingiz
+  bir marta sinab ko'ring** (yuqoridagi 2-qadam).
 
-**Iltimos, GitHub'ga qo'yishdan va talabalarga tarqatishdan oldin yuqoridagi "O'rnatish" bo'limi bo'yicha o'zingizning kompyuteringizda bir marta to'liq sinab ko'ring** (anketa to'ldirish, rasm/sertifikat yuklash, admin panelga kirish, parolni tiklash). Agar biror joyda xatolik chiqsa, menga xabar bering — birga tuzataman.
+`node_modules/`, `.env` ushbu paketdan tozalab olib tashlandi — ular "O'rnatish" bo'limidagi
+qadamlar orqali qaytadan (haqiqiy sirlar bilan) yaratiladi.

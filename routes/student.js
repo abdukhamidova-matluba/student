@@ -1,17 +1,15 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 const rateLimit = require('express-rate-limit');
 const db = require('../db');
 const { hashPin, verifyPin, signStudentToken, requireStudent } = require('../auth');
-const { OFFICIAL_GROUPS, normPhone, isValidPin, upload, uploadsDir } = require('../helpers');
+const { OFFICIAL_GROUPS, normPhone, isValidPin, upload, uploadToStorage, deleteFromStorage } = require('../helpers');
 
 const router = express.Router();
 
 const LOCK_THRESHOLD = 5; // shu qadar noto'g'ri urinishdan keyin bloklanadi
 const LOCK_MS = 15 * 60 * 1000; // 15 daqiqa
 
-// IP darajasida qo'shimcha himoya (parolni katta hajmda "brute-force" qilishga qarshi)
 const enterLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 30,
@@ -79,161 +77,170 @@ function toClientRecord(row) {
 }
 
 // POST /api/student/enter  { phone, pin }
-router.post('/enter', enterLimiter, (req, res) => {
-  const phoneRaw = req.body.phone;
-  const pin = req.body.pin;
-  const phone = normPhone(phoneRaw);
+router.post('/enter', enterLimiter, async (req, res) => {
+  try {
+    const phoneRaw = req.body.phone;
+    const pin = req.body.pin;
+    const phone = normPhone(phoneRaw);
 
-  if (!phone || phone.length < 7) {
-    return res.status(400).json({ error: "Telefon raqamni to'liq kiriting." });
-  }
-  if (!isValidPin(pin)) {
-    return res.status(400).json({ error: "Parol 4 ta raqamdan iborat bo'lishi kerak." });
-  }
-
-  const existing = db.prepare('SELECT * FROM students WHERE phone = ?').get(phone);
-  const now = new Date().toISOString();
-
-  if (!existing) {
-    const pinHash = hashPin(pin);
-    const info = db
-      .prepare('INSERT INTO students (phone, pin_hash, created_at, updated_at) VALUES (?, ?, ?, ?)')
-      .run(phone, pinHash, now, now);
-    const token = signStudentToken(info.lastInsertRowid, phone);
-    return res.json({ token, isNew: true, data: null });
-  }
-
-  // Bloklanganmi tekshirish
-  if (existing.locked_until && existing.locked_until > Date.now()) {
-    const minutesLeft = Math.ceil((existing.locked_until - Date.now()) / 60000);
-    return res.status(429).json({
-      error:
-        `Ko'p marta noto'g'ri parol kiritildi. ${minutesLeft} daqiqadan so'ng qayta urinib ko'ring, ` +
-        `yoki guruh rahbari (tyutor)/administratorga murojaat qiling.`,
-    });
-  }
-
-  if (!verifyPin(pin, existing.pin_hash)) {
-    const attempts = existing.failed_attempts + 1;
-    let lockedUntil = 0;
-    if (attempts >= LOCK_THRESHOLD) {
-      lockedUntil = Date.now() + LOCK_MS;
+    if (!phone || phone.length < 7) {
+      return res.status(400).json({ error: "Telefon raqamni to'liq kiriting." });
     }
-    db.prepare('UPDATE students SET failed_attempts = ?, locked_until = ? WHERE id = ?').run(
-      attempts,
-      lockedUntil,
-      existing.id
-    );
-    if (lockedUntil) {
+    if (!isValidPin(pin)) {
+      return res.status(400).json({ error: "Parol 4 ta raqamdan iborat bo'lishi kerak." });
+    }
+
+    const { rows } = await db.query('SELECT * FROM students WHERE phone = $1', [phone]);
+    const existing = rows[0];
+    const now = new Date().toISOString();
+
+    if (!existing) {
+      const pinHash = hashPin(pin);
+      const insertRes = await db.query(
+        'INSERT INTO students (phone, pin_hash, created_at, updated_at) VALUES ($1,$2,$3,$4) RETURNING id',
+        [phone, pinHash, now, now]
+      );
+      const token = signStudentToken(insertRes.rows[0].id, phone);
+      return res.json({ token, isNew: true, data: null });
+    }
+
+    if (existing.locked_until && Number(existing.locked_until) > Date.now()) {
+      const minutesLeft = Math.ceil((Number(existing.locked_until) - Date.now()) / 60000);
       return res.status(429).json({
         error:
-          "Ko'p marta noto'g'ri parol kiritildi. Xavfsizlik uchun 15 daqiqaga bloklandi. " +
-          'Agar parolingizni unutgan bo\'lsangiz, guruh rahbari (tyutor)/administratorga murojaat qiling.',
+          `Ko'p marta noto'g'ri parol kiritildi. ${minutesLeft} daqiqadan so'ng qayta urinib ko'ring, ` +
+          `yoki guruh rahbari (tyutor)/administratorga murojaat qiling.`,
       });
     }
-    return res.status(401).json({
-      error:
-        "Parol noto'g'ri. Agar parolingizni unutgan bo'lsangiz, o'zingiz tiklay olmaysiz — " +
-        'guruh rahbari (tyutor)/administratorga murojaat qiling, u sizning parolingizni yangilaydi.',
-    });
-  }
 
-  // Muvaffaqiyatli kirish - urinishlar hisobini tozalash
-  db.prepare('UPDATE students SET failed_attempts = 0, locked_until = 0 WHERE id = ?').run(existing.id);
-  const token = signStudentToken(existing.id, phone);
-  res.json({ token, isNew: false, data: toClientRecord(existing) });
+    if (!verifyPin(pin, existing.pin_hash)) {
+      const attempts = existing.failed_attempts + 1;
+      let lockedUntil = 0;
+      if (attempts >= LOCK_THRESHOLD) {
+        lockedUntil = Date.now() + LOCK_MS;
+      }
+      await db.query('UPDATE students SET failed_attempts = $1, locked_until = $2 WHERE id = $3', [
+        attempts,
+        lockedUntil,
+        existing.id,
+      ]);
+      if (lockedUntil) {
+        return res.status(429).json({
+          error:
+            "Ko'p marta noto'g'ri parol kiritildi. Xavfsizlik uchun 15 daqiqaga bloklandi. " +
+            'Agar parolingizni unutgan bo\'lsangiz, guruh rahbari (tyutor)/administratorga murojaat qiling.',
+        });
+      }
+      return res.status(401).json({
+        error:
+          "Parol noto'g'ri. Agar parolingizni unutgan bo'lsangiz, o'zingiz tiklay olmaysiz — " +
+          'guruh rahbari (tyutor)/administratorga murojaat qiling, u sizning parolingizni yangilaydi.',
+      });
+    }
+
+    await db.query('UPDATE students SET failed_attempts = 0, locked_until = 0 WHERE id = $1', [existing.id]);
+    const token = signStudentToken(existing.id, phone);
+    res.json({ token, isNew: false, data: toClientRecord(existing) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Serverda xatolik yuz berdi: ' + err.message });
+  }
 });
 
 // GET /api/student/me
-router.get('/me', requireStudent, (req, res) => {
-  const row = db.prepare('SELECT * FROM students WHERE id = ?').get(req.studentId);
-  if (!row) return res.status(404).json({ error: 'Anketa topilmadi.' });
-  res.json({ data: toClientRecord(row) });
+router.get('/me', requireStudent, async (req, res) => {
+  try {
+    const { rows } = await db.query('SELECT * FROM students WHERE id = $1', [req.studentId]);
+    if (!rows[0]) return res.status(404).json({ error: 'Anketa topilmadi.' });
+    res.json({ data: toClientRecord(rows[0]) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Serverda xatolik yuz berdi: ' + err.message });
+  }
 });
 
 // PUT /api/student/me  (multipart/form-data: matn maydonlari + ixtiyoriy photo/cert fayllari)
-router.put('/me', requireStudent, upload.fields([{ name: 'photo', maxCount: 1 }, { name: 'cert', maxCount: 1 }]), (req, res) => {
-  const cleanupUploaded = () => {
-    for (const key of ['photo', 'cert']) {
-      const f = req.files && req.files[key] && req.files[key][0];
-      if (f) fs.unlink(f.path, () => {});
-    }
-  };
+router.put('/me', requireStudent, upload.fields([{ name: 'photo', maxCount: 1 }, { name: 'cert', maxCount: 1 }]), async (req, res) => {
+  try {
+    const body = req.body || {};
 
-  const body = req.body || {};
-
-  const required = ['fullname', 'group', 'currentType', 'socialStatus', 'fatherPhone'];
-  for (const key of required) {
-    if (!body[key] || !String(body[key]).trim()) {
-      cleanupUploaded();
-      return res.status(400).json({ error: "Iltimos, barcha majburiy (*) maydonlarni to'ldiring." });
-    }
-  }
-  const requiredChoice = ['privilege', 'disability', 'parentDisability', 'parentDeceased', 'working', 'married'];
-  for (const key of requiredChoice) {
-    if (body[key] !== 'Ha' && body[key] !== "Yo'q") {
-      cleanupUploaded();
-      return res.status(400).json({ error: "Iltimos, barcha majburiy (*) savollarga javob bering." });
-    }
-  }
-  if (!OFFICIAL_GROUPS.includes(body.group)) {
-    cleanupUploaded();
-    return res.status(400).json({ error: "Guruh noto'g'ri tanlangan." });
-  }
-
-  const row = db.prepare('SELECT * FROM students WHERE id = ?').get(req.studentId);
-  if (!row) {
-    cleanupUploaded();
-    return res.status(404).json({ error: 'Anketa topilmadi.' });
-  }
-
-  const sets = [];
-  const values = [];
-  for (const [clientKey, col] of Object.entries(FIELD_MAP)) {
-    if (Object.prototype.hasOwnProperty.call(body, clientKey)) {
-      sets.push(`${col} = ?`);
-      values.push(String(body[clientKey] ?? ''));
-    }
-  }
-
-  function saveFile(fieldName, kind, oldFileId) {
-    const f = req.files && req.files[fieldName] && req.files[fieldName][0];
-    if (!f) return null;
-    const { v4: uuidv4 } = require('uuid');
-    const id = uuidv4();
-    db.prepare(
-      'INSERT INTO files (id, student_id, kind, original_name, mime_type, storage_name, created_at) VALUES (?,?,?,?,?,?,?)'
-    ).run(id, row.id, kind, f.originalname, f.mimetype, path.basename(f.path), new Date().toISOString());
-    if (oldFileId) {
-      const oldFile = db.prepare('SELECT * FROM files WHERE id = ?').get(oldFileId);
-      db.prepare('DELETE FROM files WHERE id = ?').run(oldFileId);
-      if (oldFile) {
-        const p = path.join(uploadsDir, oldFile.storage_name);
-        fs.unlink(p, () => {});
+    const required = ['fullname', 'group', 'currentType', 'socialStatus', 'fatherPhone'];
+    for (const key of required) {
+      if (!body[key] || !String(body[key]).trim()) {
+        return res.status(400).json({ error: "Iltimos, barcha majburiy (*) maydonlarni to'ldiring." });
       }
     }
-    return id;
+    const requiredChoice = ['privilege', 'disability', 'parentDisability', 'parentDeceased', 'working', 'married'];
+    for (const key of requiredChoice) {
+      if (body[key] !== 'Ha' && body[key] !== "Yo'q") {
+        return res.status(400).json({ error: "Iltimos, barcha majburiy (*) savollarga javob bering." });
+      }
+    }
+    if (!OFFICIAL_GROUPS.includes(body.group)) {
+      return res.status(400).json({ error: "Guruh noto'g'ri tanlangan." });
+    }
+
+    const { rows } = await db.query('SELECT * FROM students WHERE id = $1', [req.studentId]);
+    const row = rows[0];
+    if (!row) {
+      return res.status(404).json({ error: 'Anketa topilmadi.' });
+    }
+
+    const setClauses = [];
+    const values = [];
+    let idx = 1;
+    for (const [clientKey, col] of Object.entries(FIELD_MAP)) {
+      if (Object.prototype.hasOwnProperty.call(body, clientKey)) {
+        setClauses.push(`${col} = $${idx++}`);
+        values.push(String(body[clientKey] ?? ''));
+      }
+    }
+
+    async function saveFile(fieldName, kind, oldFileId) {
+      const f = req.files && req.files[fieldName] && req.files[fieldName][0];
+      if (!f) return null;
+      const id = uuidv4();
+      const ext = f.mimetype === 'application/pdf' ? '.pdf' : (f.originalname.match(/\.[a-zA-Z0-9]+$/) || ['.jpg'])[0];
+      const storagePath = `${row.id}/${id}${ext.toLowerCase()}`;
+      await uploadToStorage(storagePath, f.buffer, f.mimetype);
+      await db.query(
+        'INSERT INTO files (id, student_id, kind, original_name, mime_type, storage_path, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+        [id, row.id, kind, f.originalname, f.mimetype, storagePath, new Date().toISOString()]
+      );
+      if (oldFileId) {
+        const oldRes = await db.query('SELECT * FROM files WHERE id = $1', [oldFileId]);
+        const oldFile = oldRes.rows[0];
+        await db.query('DELETE FROM files WHERE id = $1', [oldFileId]);
+        if (oldFile) {
+          deleteFromStorage(oldFile.storage_path).catch(() => {});
+        }
+      }
+      return id;
+    }
+
+    const newPhotoId = await saveFile('photo', 'photo', row.photo_file_id);
+    if (newPhotoId) {
+      setClauses.push(`photo_file_id = $${idx++}`);
+      values.push(newPhotoId);
+    }
+    const newCertId = await saveFile('cert', 'cert', row.cert_file_id);
+    if (newCertId) {
+      setClauses.push(`cert_file_id = $${idx++}`);
+      values.push(newCertId);
+    }
+
+    setClauses.push(`updated_at = $${idx++}`);
+    values.push(new Date().toISOString());
+    values.push(row.id);
+
+    await db.query(`UPDATE students SET ${setClauses.join(', ')} WHERE id = $${idx}`, values);
+
+    const updatedRes = await db.query('SELECT * FROM students WHERE id = $1', [row.id]);
+    res.json({ ok: true, data: toClientRecord(updatedRes.rows[0]) });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || 'Saqlashda xatolik yuz berdi.' });
   }
-
-  const newPhotoId = saveFile('photo', 'photo', row.photo_file_id);
-  if (newPhotoId) {
-    sets.push('photo_file_id = ?');
-    values.push(newPhotoId);
-  }
-  const newCertId = saveFile('cert', 'cert', row.cert_file_id);
-  if (newCertId) {
-    sets.push('cert_file_id = ?');
-    values.push(newCertId);
-  }
-
-  sets.push('updated_at = ?');
-  values.push(new Date().toISOString());
-  values.push(row.id);
-
-  db.prepare(`UPDATE students SET ${sets.join(', ')} WHERE id = ?`).run(...values);
-
-  const updated = db.prepare('SELECT * FROM students WHERE id = ?').get(row.id);
-  res.json({ ok: true, data: toClientRecord(updated) });
 });
 
 module.exports = router;
